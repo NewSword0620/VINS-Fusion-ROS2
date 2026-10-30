@@ -415,8 +415,13 @@ void Estimator::initFirstPose(Eigen::Vector3d p, Eigen::Matrix3d r)
 }
 
 
+// 做两件互不干扰的事：
+//   ① 把 (dt, acc, gyr) 累加进当前帧的预积分器，供后端优化使用
+//   ② 用中点积分即时递推 Ps/Vs/Rs，供 imu_propagate 高频输出（不参与优化）
+// 参数：t = 本条 IMU 的时间戳（函数体内未使用），dt = 与上一条 IMU 的时间间隔
 void Estimator::processIMU(double t, double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
 {
+    // 第一条 IMU：只记录初始值，作为后续积分的起点
     if (!first_imu)
     {
         first_imu = true;
@@ -424,29 +429,37 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
         gyr_0 = angular_velocity;
     }
 
+    // 滑窗内每帧各有一个预积分器，首次进入该帧时按当前零偏创建
     if (!pre_integrations[frame_count])
     {
         pre_integrations[frame_count] = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
     }
     if (frame_count != 0)
     {
+        // ① 两套预积分器同时推进：
+        //    pre_integrations[...] → 当前帧的，进优化
+        //    tmp_pre_integration   → 相邻图像帧之间的，processImage 时交给 ImageFrame
+        //                            存入 all_image_frame，供初始化求解陀螺零偏 + 视觉惯性对齐
         pre_integrations[frame_count]->push_back(dt, linear_acceleration, angular_velocity);
         //if(solver_flag != NON_LINEAR)
             tmp_pre_integration->push_back(dt, linear_acceleration, angular_velocity);
 
+        // 原始数据也留一份，边缘化或重积分时要回放
         dt_buf[frame_count].push_back(dt);
         linear_acceleration_buf[frame_count].push_back(linear_acceleration);
         angular_velocity_buf[frame_count].push_back(angular_velocity);
 
+        // ② 即时状态递推（中点积分），让 imu_propagate 有连续输出
         int j = frame_count;         
-        Vector3d un_acc_0 = Rs[j] * (acc_0 - Bas[j]) - g;
-        Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - Bgs[j];
-        Rs[j] *= Utility::deltaQ(un_gyr * dt).toRotationMatrix();
-        Vector3d un_acc_1 = Rs[j] * (linear_acceleration - Bas[j]) - g;
-        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-        Ps[j] += dt * Vs[j] + 0.5 * dt * dt * un_acc;
-        Vs[j] += dt * un_acc;
+        Vector3d un_acc_0 = Rs[j] * (acc_0 - Bas[j]) - g;                 // 区间起点：去零偏 + 转到世界系 + 去重力
+        Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - Bgs[j];      // 区间内角速度取两端平均
+        Rs[j] *= Utility::deltaQ(un_gyr * dt).toRotationMatrix();         // 姿态：用旋转增量右乘更新
+        Vector3d un_acc_1 = Rs[j] * (linear_acceleration - Bas[j]) - g;   // 区间终点加速度（注意 Rs 已更新）
+        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);                    // 两端平均 → 中点积分
+        Ps[j] += dt * Vs[j] + 0.5 * dt * dt * un_acc;                     // 位置：匀加速公式
+        Vs[j] += dt * un_acc;                                             // 速度：v += a*dt
     }
+    // 本条测量值成为下一条的"上一时刻"，供中点积分取平均
     acc_0 = linear_acceleration;
     gyr_0 = angular_velocity; 
 }
@@ -459,6 +472,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     ROS_DEBUG("new image coming ------------------------------------------");
     ROS_DEBUG("Adding feature points %lu", image.size());
+    // 判断平均视差是否足够
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
     {
         marginalization_flag = MARGIN_OLD;
@@ -473,7 +487,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
     ROS_DEBUG("Solving %d", frame_count);
     ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
-    Headers[frame_count] = header;
+    Headers[frame_count] = header;// 时间
 
     ImageFrame imageframe(image, header);
     imageframe.pre_integration = tmp_pre_integration;

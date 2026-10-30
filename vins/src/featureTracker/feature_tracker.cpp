@@ -89,7 +89,7 @@ void FeatureTracker::addPoints()
     {
         cur_pts.push_back(p);
         ids.push_back(n_id++);
-        track_cnt.push_back(1);
+        track_cnt.push_back(1); // n_pts是新点，给新点补初值
     }
 }
 
@@ -101,13 +101,18 @@ double FeatureTracker::distance(cv::Point2f &pt1, cv::Point2f &pt2)
     return sqrt(dx * dx + dy * dy);
 }
 
+// 单帧特征跟踪主流程。返回值按特征 id 分组：
+//   key   = 特征 id（跨帧保持不变，VIO 靠它把同一点在不同帧关联起来）
+//   value = [(camera_id, 7 维向量)]，7 维依次为
+//           (归一化坐标 x, y, 1, 像素坐标 u, v, 归一化速度 vx, vy)
+// _img 是左目（单目时即唯一相机），_img1 是右目，单目时为空 Mat
 map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1)
 {
-    TicToc t_r;
-    cur_time = _cur_time;
-    cur_img = _img;
-    row = cur_img.rows;
-    col = cur_img.cols;
+    TicToc t_r;             // 整个跟踪流程的计时器（结尾的打印被注释掉了）
+    cur_time = _cur_time;   // 本帧时间戳（秒），会写进 msg 的 header
+    cur_img  = _img;        // 存成员变量，供 setMask()/drawTrack() 等使用
+    row      = cur_img.rows;
+    col      = cur_img.cols;
     cv::Mat rightImg = _img1;
     /*
     {
@@ -117,12 +122,15 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             clahe->apply(rightImg, rightImg);
     }
     */
+    // cur_pts 只装"本帧仍在成功跟踪的点"，上一帧的点保存在 prev_pts 里
     cur_pts.clear();
 
+    // ---------- 第一步：时序光流，把上一帧的特征点跟到当前帧 ----------
+    // 首帧没有 prev_pts，整段跳过，直接进入下面的角点检测
     if (prev_pts.size() > 0)
     {
-        vector<uchar> status;
-        if(!USE_GPU_ACC_FLOW)
+        vector<uchar> status;  // 每个点的跟踪成功(1)/失败(0)标志，长度与 prev_pts 一致
+        if(!USE_GPU_ACC_FLOW)  // CPU 分支（GPU_MODE 未开启时永远走这里）
         {
             TicToc t_o;
             
@@ -131,7 +139,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             {
                 cur_pts = predict_pts;
                 cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 1, 
-                cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
+                    cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
                 
                 int succ_num = 0;
                 for (size_t i = 0; i < status.size(); i++)
@@ -144,13 +152,17 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             }
             else
                 cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 3);
+            // ---------- 反向校验：剔除被跟错的特征点 ----------
+            // 做法：把当前帧的点再跟回上一帧，只有回到原点 0.5 像素以内才算可靠。
+            // 前向把点跟到相似纹理的错误位置上时，反向通常回不到原位，据此筛掉。
+            // 由配置项 flow_back 控制，关掉可以省一半光流耗时，但误匹配会变多。
             // reverse check
             if(FLOW_BACK)
             {
                 vector<uchar> reverse_status;
-                vector<cv::Point2f> reverse_pts = prev_pts;
+                vector<cv::Point2f> reverse_pts = prev_pts;  // 以原位置作为反向光流初值
                 cv::calcOpticalFlowPyrLK(cur_img, prev_img, cur_pts, reverse_pts, reverse_status, err, cv::Size(21, 21), 1, 
-                cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
+                    cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
                 //cv::calcOpticalFlowPyrLK(cur_img, prev_img, cur_pts, reverse_pts, reverse_status, err, cv::Size(21, 21), 3); 
                 for(size_t i = 0; i < status.size(); i++)
                 {
@@ -251,9 +263,15 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         }
 #endif
     
+        // 跟到图像边缘外的点也判为失败：这些点无法再被下一帧跟踪，
+        // 而且在边界处光流本身不可靠
         for (int i = 0; i < int(cur_pts.size()); i++)
             if (status[i] && !inBorder(cur_pts[i]))
                 status[i] = 0;
+
+        // 用同一个 status 压缩所有并行数组。
+        // 关键：prev_pts / cur_pts / ids / track_cnt 是一一对应的（下标 i 描述同一个点），
+        // 必须同步筛选，漏掉任何一个都会导致特征 id 与坐标错位，后果是优化时残差全乱
         reduceVector(prev_pts, status);
         reduceVector(cur_pts, status);
         reduceVector(ids, status);
@@ -263,12 +281,16 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         //printf("track cnt %d\n", (int)ids.size());
     }
 
+    // track_cnt 记录每个点已被连续跟踪的帧数，用于后续优先保留"老点"（观测更充分）
     for (auto &n : track_cnt)
         n++;
 
     if (1)
     {
         //rejectWithF();
+        // ---------- 第二步：检测新角点，把特征点数量补到 MAX_CNT ----------
+        // setMask() 会把"已跟踪点周围 MIN_DIST 半径内"的区域涂黑，
+        // 保证新检测的角点不会和老点挤在一起，让特征在图像上分布均匀
         ROS_DEBUG("set mask begins");
         TicToc t_m;
         setMask();
@@ -279,7 +301,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         int n_max_cnt = MAX_CNT - static_cast<int>(cur_pts.size());
         if(!USE_GPU)
         {
-            if (n_max_cnt > 0)
+            if (n_max_cnt > 0)  // 老点已经够数就不必再检测
             {
                 TicToc t_t;
                 if(mask.empty())
@@ -336,9 +358,15 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         // printf("selectFeature costs: %fms\n", t_a.toc());
     }
 
+    // ---------- 第三步：像素坐标 -> 归一化（去畸变）坐标 ----------
+    // undistortedPts 内部调用 camodocal 的 liftProjective()，
+    // 对 MEI/鱼眼模型是迭代求解（没有闭式解），是本函数里最重的几何运算
     cur_un_pts = undistortedPts(cur_pts, m_camera[0]);
+    // 由同一特征 id 在相邻两帧的归一化坐标之差除以时间间隔，得到归一化坐标下的速度（单位 1/s），
+    // 供 IMU 预积分期间对特征点位置做运动预测
     pts_velocity = ptsVelocity(ids, cur_un_pts, cur_un_pts_map, prev_un_pts_map);
 
+    // ---------- 第四步：双目时把左目点跟到右目，建立左右匹配 ----------
     if(!_img1.empty() && stereo_cam)
     {
         ids_right.clear();
@@ -419,6 +447,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
                 // printf("gpu left right optical flow cost %fms\n",t_og1.toc());
             }
 #endif
+            // 只按 status 筛掉"右目没跟上"的点，不反过来筛左目：
+            // 左目点即使没有右目对应也保留，仍可作为单目观测参与优化
             ids_right = ids;
             reduceVector(cur_right_pts, status);
             reduceVector(ids_right, status);
@@ -436,41 +466,50 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         }
         prev_un_right_pts_map = cur_un_right_pts_map;
     }
+    // 把带特征点和光流轨迹的图发出去（配置 show_track: 1 时，RViz 的 image_track 话题）
     if(SHOW_TRACK)
         drawTrack(cur_img, rightImg, ids, cur_pts, cur_right_pts, prevLeftPtsMap);
 
+    // ---------- 第五步：保存本帧状态，作为下一帧的"上一帧" ----------
     prev_img = cur_img;
     prev_pts = cur_pts;
     prev_un_pts = cur_un_pts;
     prev_un_pts_map = cur_un_pts_map;
     prev_time = cur_time;
-    hasPrediction = false;
+    hasPrediction = false;  // 预测只在 IMU 预积分期间用一次，用完立即复位
 
+    // 重建 id -> 左目像素坐标 的映射，供 drawTrack 画轨迹残影
     prevLeftPtsMap.clear();
     for(size_t i = 0; i < cur_pts.size(); i++)
         prevLeftPtsMap[ids[i]] = cur_pts[i];
 
+    // ---------- 第六步：打包成估计器要的格式 ----------
+    // 同一个特征 id 可能同时有左目和右目两条记录，
+    // 所以 value 是个 vector，元素为 (camera_id, 7 维观测)
     map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
     for (size_t i = 0; i < ids.size(); i++)
     {
         int feature_id = ids[i];
         double x, y ,z;
-        x = cur_un_pts[i].x;
+        x = cur_un_pts[i].x;   // 归一化平面坐标（已去畸变），给优化器算重投影
         y = cur_un_pts[i].y;
         z = 1;
         double p_u, p_v;
-        p_u = cur_pts[i].x;
+        p_u = cur_pts[i].x;    // 原始像素坐标，给光流跟踪和可视化用
         p_v = cur_pts[i].y;
-        int camera_id = 0;
+        int camera_id = 0;     // 0 = 左目
         double velocity_x, velocity_y;
-        velocity_x = pts_velocity[i].x;
+        velocity_x = pts_velocity[i].x;   // 归一化坐标下的速度
         velocity_y = pts_velocity[i].y;
 
+        // 顺序固定为 (x, y, z, u, v, vx, vy)，估计器那边按下标硬取，改顺序会全部错位
         Eigen::Matrix<double, 7, 1> xyz_uv_velocity;
         xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
         featureFrame[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
     }
 
+    // 右目观测追加到同一个 feature_id 名下，camera_id = 1，
+    // 估计器据此构造双目重投影残差
     if (!_img1.empty() && stereo_cam)
     {
         for (size_t i = 0; i < ids_right.size(); i++)

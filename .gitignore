@@ -1,1 +1,3 @@
-.vscode
+# .vscode: 只保留 json 文件
+.vscode/*
+!.vscode/*.json

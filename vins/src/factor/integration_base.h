@@ -96,6 +96,8 @@ class IntegrationBase
                 a_1_x(2), 0, -a_1_x(0),
                 -a_1_x(1), a_1_x(0), 0;
 
+            // 上边迭代过程的雅可比，比如result_delta_v 对delta_v 以及其它求导
+            // 状态顺序 p theta v ba bg
             MatrixXd F = MatrixXd::Zero(15, 15);
             F.block<3, 3>(0, 0) = Matrix3d::Identity();
             F.block<3, 3>(0, 3) = -0.25 * delta_q.toRotationMatrix() * R_a_0_x * _dt * _dt + 
@@ -114,6 +116,13 @@ class IntegrationBase
             F.block<3, 3>(12, 12) = Matrix3d::Identity();
             //cout<<"A"<<endl<<A<<endl;
 
+            // 噪声 
+            // 0-2  na_k：第 k 条加计噪声	ACC_N²
+            // 3-5	ng_k：第 k 条陀螺噪声	GYR_N²
+            // 6-8	na_{k+1}	ACC_N²
+            // 9-11	ng_{k+1}	GYR_N²
+            // 12-14	ba 随机游走	ACC_W²
+            // 15-17	bg 随机游走	GYR_W²
             MatrixXd V = MatrixXd::Zero(15,18);
             V.block<3, 3>(0, 0) =  0.25 * delta_q.toRotationMatrix() * _dt * _dt;
             V.block<3, 3>(0, 3) =  0.25 * -result_delta_q.toRotationMatrix() * R_a_1_x  * _dt * _dt * 0.5 * _dt;
@@ -147,6 +156,8 @@ class IntegrationBase
         Vector3d result_linearized_ba;
         Vector3d result_linearized_bg;
 
+        // acc_0 gyr_0是本帧初始的imu
+        // acc_1 gyr_1是实时输入
         midPointIntegration(_dt, acc_0, gyr_0, _acc_1, _gyr_1, delta_p, delta_q, delta_v,
                             linearized_ba, linearized_bg,
                             result_delta_p, result_delta_q, result_delta_v,

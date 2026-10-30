@@ -101,6 +101,9 @@ class Estimator
     std::mutex mPropagate;
     queue<pair<double, Eigen::Vector3d>> accBuf;
     queue<pair<double, Eigen::Vector3d>> gyrBuf;
+    // featurBuf: time, feature_id 
+    //                       |----->camera_id0, 7D observation (x, y, z, u, v, vx, vy)
+    //                       |----->camera_id1, 7D observation (x, y, z, u, v, vx, vy)
     queue<pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > > > > featureBuf;
     double prevTime, curTime;
     bool openExEstimation;

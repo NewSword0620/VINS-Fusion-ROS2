@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "name": "ros2",
+      "compileCommands": "/home/qst/Learn/vins_fusion_ros2/build/vins/compile_commands.json",
+      "compilerPath": "/usr/bin/g++",
+      "intelliSenseMode": "linux-gcc-x64",
+      "cStandard": "gnu11",
+      "cppStandard": "c++17",
+      "includePath": [
+        "/opt/ros/jazzy/include/**",
+        "${workspaceFolder}/camera_models/include/**"
+      ],
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "version": 4
+}

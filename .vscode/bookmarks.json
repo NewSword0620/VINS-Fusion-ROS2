@@ -1,0 +1,49 @@
+{
+	"files": [
+		{
+			"path": "vins/src/estimator/estimator.cpp",
+			"bookmarks": [
+				{
+					"line": 475,
+					"column": 37,
+					"label": "判断平均视差"
+				},
+				{
+					"line": 496,
+					"column": 31,
+					"label": "（未看）IMU和相机外参标定"
+				},
+				{
+					"line": 515,
+					"column": 9,
+					"label": "完成初始化和后续图优化"
+				},
+				{
+					"line": 518,
+					"column": 16,
+					"label": "（未看）单目+imu优化"
+				},
+				{
+					"line": 570,
+					"column": 13,
+					"label": "（未看）双目无imu优化"
+				}
+			]
+		},
+		{
+			"path": "vins/src/estimator/feature_manager.cpp",
+			"bookmarks": [
+				{
+					"line": 372,
+					"column": 13,
+					"label": "（未看）单目三角化"
+				},
+				{
+					"line": 412,
+					"column": 10,
+					"label": "（未看）三角化里部分代码被跳过"
+				}
+			]
+		}
+	]
+}

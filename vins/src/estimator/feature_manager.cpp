@@ -39,7 +39,7 @@ int FeatureManager::getFeatureCount()
     int cnt = 0;
     for (auto &it : feature)
     {
-        it.used_num = it.feature_per_frame.size();
+        it.used_num = it.feature_per_frame.size();//该特征在滑窗内被观测到的帧数
         if (it.used_num >= 4)
         {
             cnt++;
@@ -49,27 +49,33 @@ int FeatureManager::getFeatureCount()
 }
 
 
+// 收下本帧全部特征观测，并顺便判定本帧是否该作为关键帧。
+// 返回值：true  = 需要插关键帧（视差够大，或跟踪质量不足时强制插入）
+//         false = 与上一帧差别不大，可被边缘化掉
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
     ROS_DEBUG("input feature: %d", (int)image.size());
     ROS_DEBUG("num of feature: %d", getFeatureCount());
-    double parallax_sum = 0;
-    int parallax_num = 0;
-    last_track_num = 0;
+    // 本帧的三项统计，用于后面的关键帧判据
+    double parallax_sum = 0;   // 视差累加（归一化单位）
+    int parallax_num = 0;      // 参与视差统计的特征数
+    last_track_num = 0;        // 本帧成功跟住的老点数
     last_average_parallax = 0;
-    new_feature_num = 0;
-    long_track_num = 0;
+    new_feature_num = 0;       // 本帧新出现的点数
+    long_track_num = 0;        // 累计观测已达 4 帧的稳定点数
     for (auto &id_pts : image)
     {
+        // 同一 id 的观测合成一条 FeaturePerFrame：左目为主，右目作为附加观测
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
-        assert(id_pts.second[0].first == 0);
+        assert(id_pts.second[0].first == 0);      // 第 0 条必须是左目
         if(id_pts.second.size() == 2)
         {
             f_per_fra.rightObservation(id_pts.second[1].second);
-            assert(id_pts.second[1].first == 1);
+            assert(id_pts.second[1].first == 1);  // 第 1 条必须是右目
         }
 
         int feature_id = id_pts.first;
+        // 在该特征的观测链里查找是否已存在（线性扫描，O(n)）
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
@@ -77,24 +83,36 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
 
         if (it == feature.end())
         {
+            // 新特征：新建一条观测链，起始帧记为本帧
+            // FeaturePerId构造同时会记录下特征点起始的帧号frame_count，方便后续计算视差时判断该特征是否跨越了足够帧
             feature.push_back(FeaturePerId(feature_id, frame_count));
             feature.back().feature_per_frame.push_back(f_per_fra);
             new_feature_num++;
         }
         else if (it->feature_id == feature_id)
         {
+            // 老特征：追加本帧观测（此 else-if 的条件恒成立，等价于 else）
             it->feature_per_frame.push_back(f_per_fra);
             last_track_num++;
             if( it-> feature_per_frame.size() >= 4)
-                long_track_num++;
+                long_track_num++;   // 观测满 4 帧，视为稳定点
         }
     }
 
+    // ---- 第一道判据：跟踪质量 ----
+    // 任一条件成立就强制插关键帧：
+    //   frame_count < 2                     窗口还太浅
+    //   last_track_num < 20                 跟住的老点太少
+    //   long_track_num < 40                 稳定点不足
+    //   new_feature_num > 0.5*last_track_num 新点占比过高（刚发生遮挡/跳变）
     //if (frame_count < 2 || last_track_num < 20)
     //if (frame_count < 2 || last_track_num < 20 || new_feature_num > 0.5 * last_track_num)
     if (frame_count < 2 || last_track_num < 20 || long_track_num < 40 || new_feature_num > 0.5 * last_track_num)
         return true;
 
+    // ---- 第二道判据：平均视差 ----
+    // 只统计「跨越最近两帧」的特征：起始帧不晚于倒数第二帧，
+    // 且观测链覆盖到倒数第一帧。只有这些点才能反映当前帧相对上一帧的运动
     for (auto &it_per_id : feature)
     {
         if (it_per_id.start_frame <= frame_count - 2 &&
@@ -107,12 +125,13 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
 
     if (parallax_num == 0)
     {
-        return true;
+        return true;    // 没有可用特征，只能插关键帧
     }
     else
     {
         ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
         ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
+        // 平均视差与阈值比较，last_average_parallax任何地方都没用到
         last_average_parallax = parallax_sum / parallax_num * FOCAL_LENGTH;
         return parallax_sum / parallax_num >= MIN_PARALLAX;
     }
@@ -195,6 +214,8 @@ VectorXd FeatureManager::getDepthVector()
 }
 
 
+// 公式和视觉SLAM十四讲7.7.1是基本一样的，只是书上在求Pose,这里在求空间位置
+// triangulated_point(3)其实是 1/s, s代表深度
 void FeatureManager::triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matrix<double, 3, 4> &Pose1,
                         Eigen::Vector2d &point0, Eigen::Vector2d &point1, Eigen::Vector3d &point_3d)
 {
@@ -234,6 +255,7 @@ bool FeatureManager::solvePoseByPnP(Eigen::Matrix3d &R, Eigen::Vector3d &P,
     cv::eigen2cv(P_initial, t);
     cv::Mat K = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);  
     bool pnp_succ;
+    // 理论上第二个输入应该是像素坐标，但是这里pts2D是归一化平面坐标，K是单位阵，所以结果是一样的
     pnp_succ = cv::solvePnP(pts3D, pts2D, K, D, rvec, t, 1);
     //pnp_succ = solvePnPRansac(pts3D, pts2D, K, D, rvec, t, true, 100, 8.0 / focalLength, 0.99, inliers);
 
@@ -270,9 +292,11 @@ void FeatureManager::initFramePoseByPnP(int frameCnt, Vector3d Ps[], Matrix3d Rs
                 int index = frameCnt - it_per_id.start_frame;
                 if((int)it_per_id.feature_per_frame.size() >= index + 1)
                 {
+                    // ptsInCam实际是转到IMU坐标系了
                     Vector3d ptsInCam = ric[0] * (it_per_id.feature_per_frame[0].point * it_per_id.estimated_depth) + tic[0];
                     Vector3d ptsInWorld = Rs[it_per_id.start_frame] * ptsInCam + Ps[it_per_id.start_frame];
 
+                    // point3d初始帧， point2d最后帧
                     cv::Point3f point3d(ptsInWorld.x(), ptsInWorld.y(), ptsInWorld.z());
                     cv::Point2f point2d(it_per_id.feature_per_frame[index].point.x(), it_per_id.feature_per_frame[index].point.y());
                     pts3D.push_back(point3d);
@@ -283,6 +307,7 @@ void FeatureManager::initFramePoseByPnP(int frameCnt, Vector3d Ps[], Matrix3d Rs
         Eigen::Matrix3d RCam;
         Eigen::Vector3d PCam;
         // trans to w_T_cam
+        // 由IMU积分计算出cam的位姿，作为PnP的初值
         RCam = Rs[frameCnt - 1] * ric[0];
         PCam = Rs[frameCnt - 1] * tic[0] + Ps[frameCnt - 1];
 
@@ -384,6 +409,7 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
         if (it_per_id.used_num < 4)
             continue;
 
+        // 以下代码都被continue跳过了，不会执行
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 
         Eigen::MatrixXd svd_A(2 * it_per_id.feature_per_frame.size(), 4);
@@ -535,10 +561,10 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
 
     double ans = 0;
-    Vector3d p_j = frame_j.point;
+    Vector3d p_j = frame_j.point;// 归一化坐标，不是像素
 
-    double u_j = p_j(0);
-    double v_j = p_j(1);
+    double x_j = p_j(0);
+    double y_j = p_j(1);
 
     Vector3d p_i = frame_i.point;
     Vector3d p_i_comp;
@@ -548,16 +574,16 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     //p_i_comp = ric[camera_id_j].transpose() * Rs[r_j].transpose() * Rs[r_i] * ric[camera_id_i] * p_i;
     p_i_comp = p_i;
     double dep_i = p_i(2);
-    double u_i = p_i(0) / dep_i;
-    double v_i = p_i(1) / dep_i;
-    double du = u_i - u_j, dv = v_i - v_j;
+    double x_i = p_i(0) / dep_i;
+    double y_i = p_i(1) / dep_i;
+    double dx = x_i - x_j, dy = y_i - y_j;
 
     double dep_i_comp = p_i_comp(2);
-    double u_i_comp = p_i_comp(0) / dep_i_comp;
-    double v_i_comp = p_i_comp(1) / dep_i_comp;
-    double du_comp = u_i_comp - u_j, dv_comp = v_i_comp - v_j;
+    double x_i_comp = p_i_comp(0) / dep_i_comp;
+    double y_i_comp = p_i_comp(1) / dep_i_comp;
+    double dx_comp = x_i_comp - x_j, dy_comp = y_i_comp - y_j;
 
-    ans = max(ans, sqrt(min(du * du + dv * dv, du_comp * du_comp + dv_comp * dv_comp)));
+    ans = max(ans, sqrt(min(dx * dx + dy * dy, dx_comp * dx_comp + dy_comp * dy_comp)));
 
     return ans;
 }
