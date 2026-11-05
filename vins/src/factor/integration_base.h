@@ -139,7 +139,9 @@ class IntegrationBase
 
             //step_jacobian = F;
             //step_V = V;
+            // 这里后边零偏发生变化时，需要重新校正预积分值，要用到jacobin
             jacobian = F * jacobian;
+            // covariance不是EKF里的P，而是预积分的协方差，协方差是对噪声的传播，初始很准所以是0
             covariance = F * covariance * F.transpose() + V * noise * V.transpose();
         }
 
@@ -193,10 +195,12 @@ class IntegrationBase
         Eigen::Vector3d dba = Bai - linearized_ba;
         Eigen::Vector3d dbg = Bgi - linearized_bg;
 
+        // 以下三行是对预积分的结果进行修正，考虑了bias的变化
         Eigen::Quaterniond corrected_delta_q = delta_q * Utility::deltaQ(dq_dbg * dbg);
         Eigen::Vector3d corrected_delta_v = delta_v + dv_dba * dba + dv_dbg * dbg;
         Eigen::Vector3d corrected_delta_p = delta_p + dp_dba * dba + dp_dbg * dbg;
 
+        // 下面是残差的计算，残差是观测值与预测值(修正后预积分)之间的差异
         residuals.block<3, 1>(O_P, 0) = Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt) - corrected_delta_p;
         residuals.block<3, 1>(O_R, 0) = 2 * (corrected_delta_q.inverse() * (Qi.inverse() * Qj)).vec();
         residuals.block<3, 1>(O_V, 0) = Qi.inverse() * (G * sum_dt + Vj - Vi) - corrected_delta_v;

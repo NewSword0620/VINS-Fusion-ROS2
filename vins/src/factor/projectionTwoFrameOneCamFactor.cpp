@@ -56,20 +56,22 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
 
     double td = parameters[4][0];
 
-    Eigen::Vector3d pts_i_td, pts_j_td;
+    Eigen::Vector3d pts_i_td, pts_j_td;// 补偿时间延迟后的归一化坐标
     pts_i_td = pts_i - (td - td_i) * velocity_i;
     pts_j_td = pts_j - (td - td_j) * velocity_j;
-    Eigen::Vector3d pts_camera_i = pts_i_td / inv_dep_i;
-    Eigen::Vector3d pts_imu_i = qic * pts_camera_i + tic;
+    Eigen::Vector3d pts_camera_i = pts_i_td / inv_dep_i;// 特征点在i帧相机坐标系下的坐标
+    Eigen::Vector3d pts_imu_i = qic * pts_camera_i + tic; // 特征点在i帧IMU坐标系下的坐标
+    // 通过imu计算的位姿变化，使i j建立起联系
     Eigen::Vector3d pts_w = Qi * pts_imu_i + Pi;
-    Eigen::Vector3d pts_imu_j = Qj.inverse() * (pts_w - Pj);
-    Eigen::Vector3d pts_camera_j = qic.inverse() * (pts_imu_j - tic);
+    Eigen::Vector3d pts_imu_j = Qj.inverse() * (pts_w - Pj);// 估计特征点在j帧IMU坐标系下的坐标
+    Eigen::Vector3d pts_camera_j = qic.inverse() * (pts_imu_j - tic);// 估计特征点在j帧相机坐标系下的坐标
     Eigen::Map<Eigen::Vector2d> residual(residuals);
 
 #ifdef UNIT_SPHERE_ERROR 
     residual =  tangent_base * (pts_camera_j.normalized() - pts_j_td.normalized());
 #else
-    double dep_j = pts_camera_j.z();
+    double dep_j = pts_camera_j.z(); 
+    // 残差表示为j帧相机坐标系下，估计的特征点归一化坐标与实际观测到的归一化坐标之间的差值
     residual = (pts_camera_j / dep_j).head<2>() - pts_j_td.head<2>();
 #endif
 
@@ -93,6 +95,8 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
                      - x1 * x3 / pow(norm, 3),            - x2 * x3 / pow(norm, 3),            1.0 / norm - x3 * x3 / pow(norm, 3);
         reduce = tangent_base * norm_jaco;
 #else
+        // residual = [X/Z, Y/Z]，这里的X Y Z都是受Qi Pi等影响的
+        // 所以先求residual对[X Y Z]的偏导数，再乘上[X Y Z]对Qi Pi等的偏导数，得到最终的残差对各个参数的偏导数
         reduce << 1. / dep_j, 0, -pts_camera_j(0) / (dep_j * dep_j),
             0, 1. / dep_j, -pts_camera_j(1) / (dep_j * dep_j);
 #endif
@@ -102,6 +106,7 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
         {
             Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_pose_i(jacobians[0]);
 
+            // 根据resiual的计算过程求即可，易得
             Eigen::Matrix<double, 3, 6> jaco_i;
             jaco_i.leftCols<3>() = ric.transpose() * Rj.transpose();
             jaco_i.rightCols<3>() = ric.transpose() * Rj.transpose() * Ri * -Utility::skewSymmetric(pts_imu_i);
@@ -114,6 +119,7 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
         {
             Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_pose_j(jacobians[1]);
 
+            // 根据resiual的计算过程求即可，易得
             Eigen::Matrix<double, 3, 6> jaco_j;
             jaco_j.leftCols<3>() = ric.transpose() * -Rj.transpose();
             jaco_j.rightCols<3>() = ric.transpose() * Utility::skewSymmetric(pts_imu_j);
@@ -125,7 +131,9 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
         {
             Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_ex_pose(jacobians[2]);
             Eigen::Matrix<double, 3, 6> jaco_ex;
+            // 根据resiual的计算过程求即可，易得
             jaco_ex.leftCols<3>() = ric.transpose() * (Rj.transpose() * Ri - Eigen::Matrix3d::Identity());
+            // 根据resiual的计算过程右扰动全部依次展开，可以算出来
             Eigen::Matrix3d tmp_r = ric.transpose() * Rj.transpose() * Ri * ric;
             jaco_ex.rightCols<3>() = -tmp_r * Utility::skewSymmetric(pts_camera_i) + Utility::skewSymmetric(tmp_r * pts_camera_i) +
                                      Utility::skewSymmetric(ric.transpose() * (Rj.transpose() * (Ri * tic + Pi - Pj) - tic));
@@ -134,11 +142,13 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
         }
         if (jacobians[3])
         {
+            // 根据resiual的计算过程求即可，易得
             Eigen::Map<Eigen::Vector2d> jacobian_feature(jacobians[3]);
             jacobian_feature = reduce * ric.transpose() * Rj.transpose() * Ri * ric * pts_i_td * -1.0 / (inv_dep_i * inv_dep_i);
         }
         if (jacobians[4])
         {
+            // 根据resiual的计算过程求即可，易得
             Eigen::Map<Eigen::Vector2d> jacobian_td(jacobians[4]);
             jacobian_td = reduce * ric.transpose() * Rj.transpose() * Ri * ric * velocity_i / inv_dep_i * -1.0  +
                           sqrt_info * velocity_j.head(2);

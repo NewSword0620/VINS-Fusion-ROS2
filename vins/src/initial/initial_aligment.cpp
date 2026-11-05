@@ -28,8 +28,13 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         VectorXd tmp_b(3);
         tmp_b.setZero();
         Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);
+        // 公式①  J·δbg = r ，其中 J = ∂Δq/∂bg（旧零偏下积分得到的雅可比）
         tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);
+        // 公式②  r = Log(Δq⁻¹·q_ij)
+        // 公式③  Log(q) = θ·n̂ = 2 · sin(θ/2)·n̂ = 2·vec(q)   （小角度下，2 为近似系数）
+        // 即 2·vec() 代替 Log，因为 Eigen 没有四元数的 log()
         tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();
+        // 累加为正规方程 (ΣJᵀJ)·δbg = ΣJᵀr
         A += tmp_A.transpose() * tmp_A;
         b += tmp_A.transpose() * tmp_b;
     }
@@ -39,6 +44,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     for (int i = 0; i <= WINDOW_SIZE; i++)
         Bgs[i] += delta_bg;
 
+    // 用新的零偏重新预积分以及计算雅可比
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end( ); frame_i++)
     {
         frame_j = next(frame_i);

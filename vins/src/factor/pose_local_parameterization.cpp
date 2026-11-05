@@ -9,6 +9,11 @@
 
 #include "pose_local_parameterization.h"
 
+// 求雅可比处，平移本来导数就是 1，旋转相关的导数在因子里已经算完了，
+// 因此雅可比对应位置写的单位阵，相当于复制。
+// J_final = J_factor * J_plus, J_factor 已经算完了旋所有导数
+
+// ambient（3+4） ⊕ tangent（3+3） → ambient
 bool PoseLocalParameterization::Plus(const double *x, const double *delta, double *x_plus_delta) const
 {
     Eigen::Map<const Eigen::Vector3d> _p(x);
@@ -27,6 +32,7 @@ bool PoseLocalParameterization::Plus(const double *x, const double *delta, doubl
     return true;
 }
 
+// Plus(x, delta) 对delta的雅可比
 bool PoseLocalParameterization::PlusJacobian(const double *x, double *jacobian) const
 {
     Eigen::Map<Eigen::Matrix<double, 7, 6, Eigen::RowMajor>> j(jacobian);
@@ -36,6 +42,7 @@ bool PoseLocalParameterization::PlusJacobian(const double *x, double *jacobian) 
     return true;
 }
 
+// ambient ⊖ ambient → tangent
 bool PoseLocalParameterization::Minus(const double *y, const double *x, double *y_minus_x) const
 {
     Eigen::Map<const Eigen::Vector3d> p_y(y);
@@ -55,6 +62,7 @@ bool PoseLocalParameterization::Minus(const double *y, const double *x, double *
     return true;
 }
 
+// Minus(y, x) 对 y 的雅可比
 bool PoseLocalParameterization::MinusJacobian(const double *x, double *jacobian) const
 {
     Eigen::Map<Eigen::Matrix<double, 6, 7, Eigen::RowMajor>> j(jacobian);

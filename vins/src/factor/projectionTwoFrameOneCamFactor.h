@@ -18,6 +18,7 @@
 #include "../utility/tic_toc.h"
 #include "../estimator/parameters.h"
 
+// 2-残差维度 7-frame1位姿 7-frame2位姿 7-外参 1-特征深度倒数(1/Z) 1-时间偏移
 class ProjectionTwoFrameOneCamFactor : public ceres::SizedCostFunction<2, 7, 7, 7, 1, 1>
 {
   public:

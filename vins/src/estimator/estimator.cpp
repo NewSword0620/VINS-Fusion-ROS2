@@ -491,7 +491,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     ImageFrame imageframe(image, header);
     imageframe.pre_integration = tmp_pre_integration;
-    all_image_frame.insert(make_pair(header, imageframe));
+    all_image_frame.insert(make_pair(header, imageframe));// 用来初始化计算零偏
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
     if(ESTIMATE_EXTRINSIC == 2)
@@ -555,6 +555,8 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                     i++;
                 }
                 solveGyroscopeBias(all_image_frame, Bgs);
+                // 零偏变化了，这里要重新预积分，计算雅可比
+                // pre_integrations只是滑窗内每帧的预积分器，不同于all_image_frame
                 for (int i = 0; i <= WINDOW_SIZE; i++)
                 {
                     pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
@@ -886,7 +888,7 @@ void Estimator::vector2double()
     {
         // cout << Ps[i].x() << " " << Ps[i].y() << " " << Ps[i].z() << endl;
         // cout << "--------" << endl;
-
+        // 位姿，imu处
         para_Pose[i][0] = Ps[i].x();
         para_Pose[i][1] = Ps[i].y();
         para_Pose[i][2] = Ps[i].z();
@@ -896,6 +898,7 @@ void Estimator::vector2double()
         para_Pose[i][5] = q.z();
         para_Pose[i][6] = q.w();
 
+        // 速度+6轴零偏
         if(USE_IMU)
         {
             para_SpeedBias[i][0] = Vs[i].x();
@@ -912,6 +915,7 @@ void Estimator::vector2double()
         }
     }
 
+    // 两个相机与IMU之间的外参
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         para_Ex_Pose[i][0] = tic[i].x();
@@ -1082,14 +1086,16 @@ void Estimator::optimization()
     //ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
     for (int i = 0; i < frame_count + 1; i++)
     {
+        // 定义位姿流形
         ceres::Manifold *local_parameterization = new PoseLocalParameterization();
         problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
-        if(USE_IMU)
+        if(USE_IMU) // 本来就是欧几里得空间的就不用输入 Manifold
             problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
     }
     if(!USE_IMU)
         problem.SetParameterBlockConstant(para_Pose[0]);
 
+    // 相机外参是否估计
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::Manifold *local_parameterization = new PoseLocalParameterization();
@@ -1105,6 +1111,7 @@ void Estimator::optimization()
             problem.SetParameterBlockConstant(para_Ex_Pose[i]);
         }
     }
+    // 延时是否估计
     problem.AddParameterBlock(para_Td[0], 1);
 
     if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
@@ -1143,6 +1150,7 @@ void Estimator::optimization()
         
         Vector3d pts_i = it_per_id.feature_per_frame[0].point;
 
+        // 帧i始终是起始帧，循环依次把该特征后续的每一次观测当作帧j
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
             imu_j++;
@@ -1163,7 +1171,7 @@ void Estimator::optimization()
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
                     problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Ex_Pose[1], para_Feature[feature_index], para_Td[0]);
                 }
-                else
+                else // 只在起始帧的观测中加入单帧双目约束，其余都是双帧
                 {
                     ProjectionOneFrameTwoCamFactor *f = new ProjectionOneFrameTwoCamFactor(pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocityRight,
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);

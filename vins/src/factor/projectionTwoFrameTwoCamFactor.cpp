@@ -14,6 +14,10 @@
 Eigen::Matrix2d ProjectionTwoFrameTwoCamFactor::sqrt_info;
 double ProjectionTwoFrameTwoCamFactor::sum_t;
 
+// 参考ProjectionTwoFrameOneCamFactor::Evaluate的实现
+// 两者的起点都是 pts_i（左目、起始帧）
+// 区别只在终点：OneCam 用 it_per_frame.point（左目帧 j），
+//             TwoCam 用 it_per_frame.pointRight（右目帧 j）。
 ProjectionTwoFrameTwoCamFactor::ProjectionTwoFrameTwoCamFactor(const Eigen::Vector3d &_pts_i, const Eigen::Vector3d &_pts_j,
                                                                const Eigen::Vector2d &_velocity_i, const Eigen::Vector2d &_velocity_j,
                                                                const double _td_i, const double _td_j) : 

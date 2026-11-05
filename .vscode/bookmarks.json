@@ -4,6 +4,11 @@
 			"path": "vins/src/estimator/estimator.cpp",
 			"bookmarks": [
 				{
+					"line": 336,
+					"column": 20,
+					"label": "IMU的预积分和正常积分"
+				},
+				{
 					"line": 475,
 					"column": 37,
 					"label": "判断平均视差"
@@ -11,12 +16,12 @@
 				{
 					"line": 496,
 					"column": 31,
-					"label": "（未看）IMU和相机外参标定"
+					"label": "（未看）IMU和相机外参初始标定"
 				},
 				{
 					"line": 515,
 					"column": 9,
-					"label": "完成初始化和后续图优化"
+					"label": "完成包括零偏的初始化"
 				},
 				{
 					"line": 518,
@@ -24,9 +29,59 @@
 					"label": "（未看）单目+imu优化"
 				},
 				{
-					"line": 570,
+					"line": 556,
+					"column": 26,
+					"label": "利用PnP结果重新计算零偏"
+				},
+				{
+					"line": 563,
+					"column": 31,
+					"label": "Ceres优化"
+				},
+				{
+					"line": 572,
 					"column": 13,
 					"label": "（未看）双目无imu优化"
+				},
+				{
+					"line": 1089,
+					"column": 48,
+					"label": "添加位姿待估计变量"
+				},
+				{
+					"line": 1098,
+					"column": 11,
+					"label": "添加相机外参待估计变量"
+				},
+				{
+					"line": 1114,
+					"column": 21,
+					"label": "添加延时待估计变量"
+				},
+				{
+					"line": 1119,
+					"column": 13,
+					"label": "（未看）边缘化因子"
+				},
+				{
+					"line": 1133,
+					"column": 14,
+					"label": "IMU因子"
+				},
+				{
+					"line": 1159,
+					"column": 24,
+					"label": "2帧图1相机约束"
+				},
+				{
+					"line": 1169,
+					"column": 31,
+					"label": "2帧图2相机约束"
+				},
+				{
+					"line": 1175,
+					"column": 28,
+					"label": "1帧图2相机约束"
 				}
 			]
 		},
@@ -42,6 +97,36 @@
 					"line": 412,
 					"column": 10,
 					"label": "（未看）三角化里部分代码被跳过"
+				}
+			]
+		},
+		{
+			"path": "vins/src/factor/imu_factor.h",
+			"bookmarks": [
+				{
+					"line": 74,
+					"column": 40,
+					"label": "IMU因子的残差计算"
+				},
+				{
+					"line": 81,
+					"column": 40,
+					"label": "IMU因子的残差白化"
+				},
+				{
+					"line": 83,
+					"column": 22,
+					"label": "IMU因子残差雅可比"
+				}
+			]
+		},
+		{
+			"path": "vins/src/factor/projectionTwoFrameOneCamFactor.cpp",
+			"bookmarks": [
+				{
+					"line": 29,
+					"column": 24,
+					"label": "（未看）UNIT_SPHERE_ERROR"
 				}
 			]
 		}

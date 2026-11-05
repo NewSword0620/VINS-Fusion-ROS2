@@ -39,6 +39,9 @@ ProjectionOneFrameTwoCamFactor::ProjectionOneFrameTwoCamFactor(const Eigen::Vect
 #endif
 };
 
+// 与ProjectionTwoFrameOneCamFactor、ProjectionTwoFrameTwoCamFactor类似
+// 都是归一化坐标i-->相机系坐标i-->IMU系坐标i--->世界系坐标-->IMU系坐标j-->相机系坐标j-->归一化坐标j
+// 然后归一化坐标j和观测到的归一化坐标j计算残差（相机内参已经提前校正了，所以这就相当于像素误差了）
 bool ProjectionOneFrameTwoCamFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
     TicToc tic_toc;
