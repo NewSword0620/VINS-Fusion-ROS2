@@ -11,6 +11,7 @@
 
 #include "projectionTwoFrameOneCamFactor.h"
 
+// static 成员属于类而不属于对象，全程序只有一份存储
 Eigen::Matrix2d ProjectionTwoFrameOneCamFactor::sqrt_info;
 double ProjectionTwoFrameOneCamFactor::sum_t;
 

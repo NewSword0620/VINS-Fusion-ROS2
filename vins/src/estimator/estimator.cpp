@@ -109,6 +109,7 @@ void Estimator::setParameter()
         cout << " exitrinsic cam " << i << endl  << ric[i] << endl << tic[i].transpose() << endl;
     }
     f_manager.setRic(ric);
+    // static 成员属于类而不属于对象，全程序只有一份存储，可以在这里赋值
     ProjectionTwoFrameOneCamFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     ProjectionTwoFrameTwoCamFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     ProjectionOneFrameTwoCamFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
@@ -472,12 +473,14 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     ROS_DEBUG("new image coming ------------------------------------------");
     ROS_DEBUG("Adding feature points %lu", image.size());
-    // 判断平均视差是否足够
+    // 先看跟踪质量，质量够再比平均视差
+    // 质量差（老点太少/稳定点不足/新点占比过高）或者平均视差太小，直接边缘化最老帧
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
     {
         marginalization_flag = MARGIN_OLD;
         //printf("keyframe\n");
     }
+    // 否则边缘化次新帧
     else
     {
         marginalization_flag = MARGIN_SECOND_NEW;
@@ -936,6 +939,8 @@ void Estimator::vector2double()
     para_Td[0][0] = td;
 }
 
+// 把 Ceres 优化完的 para_* 数组搬回 Eigen 容器（Ps/Rs/Vs/Bas/Bgs/tic/ric/td 和特征深度）
+// 同时把位姿部分做一个规范修正
 void Estimator::double2vector()
 {
     Vector3d origin_R0 = Utility::R2ypr(Rs[0]);
@@ -948,6 +953,7 @@ void Estimator::double2vector()
         failure_occur = 0;
     }
 
+    // 有 IMU → 第一帧必然在优化里
     if(USE_IMU)
     {
         Vector3d origin_R00 = Utility::R2ypr(Quaterniond(para_Pose[0][6],
@@ -990,6 +996,7 @@ void Estimator::double2vector()
             
         }
     }
+    // 纯视觉 → 第一帧被锁死
     else
     {
         for (int i = 0; i <= WINDOW_SIZE; i++)
@@ -1214,6 +1221,7 @@ void Estimator::optimization()
     ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());
 
+    // 修正Ps/Rs/Vs/Bas/Bgs/tic/ric/td
     double2vector();
     //printf("frame_count: %d \n", frame_count);
 
@@ -1224,11 +1232,15 @@ void Estimator::optimization()
     if (marginalization_flag == MARGIN_OLD)
     {
         MarginalizationInfo *marginalization_info = new MarginalizationInfo();
+        // para_** 需要使用solve结束后修正的最新的值
         vector2double();
 
         if (last_marginalization_info && last_marginalization_info->valid)
         {
             vector<int> drop_set;
+            // para_Pose为例，
+            // last_marginalization_parameter_blocks中存的是0~9的参数地址，
+            // 但是对应的数据(详见getParameterBlocks)已经是1-10的数据了
             for (int i = 0; i < static_cast<int>(last_marginalization_parameter_blocks.size()); i++)
             {
                 if (last_marginalization_parameter_blocks[i] == para_Pose[0] ||
@@ -1243,6 +1255,8 @@ void Estimator::optimization()
             marginalization_info->addResidualBlockInfo(residual_block_info);
         }
 
+        // 需要边缘化最老的帧
+        // 因此提出与最老帧有关的因子，加入到边缘化信息中
         if(USE_IMU)
         {
             if (pre_integrations[1]->sum_dt < 10.0)
@@ -1311,16 +1325,24 @@ void Estimator::optimization()
         }
 
         TicToc t_pre_margin;
+        // 边缘化的预备函数，对与待边缘化的参数有关的内容做如下操作
+        // ①对每条因子调 Evaluate() 拿到（经鲁棒核修正的）雅可比和残差；
+        // ②把每个参数块的当前值深拷贝一份作为冻结的线性化点
         marginalization_info->preMarginalize();
         ROS_DEBUG("pre marginalization %f ms", t_pre_margin.toc());
         
         TicToc t_margin;
+        // 对每个因子的雅可比，边缘化的块移动到左上角，计算JTJ和JTr
+        // 舒尔消元后得到新的残差块和雅可比
         marginalization_info->marginalize();
         ROS_DEBUG("marginalization %f ms", t_margin.toc());
 
         std::unordered_map<long, double *> addr_shift;
         for (int i = 1; i <= WINDOW_SIZE; i++)
         {
+            // para_Pose[1]的数据现在要挪到para_Pose[0]的位置上
+            // 像是一排人坐在椅子上，左边的人要离开，右边的人往左挪，椅子全程没动，只是对应关系变了
+            // 详见getParameterBlocks
             addr_shift[reinterpret_cast<long>(para_Pose[i])] = para_Pose[i - 1];
             if(USE_IMU)
                 addr_shift[reinterpret_cast<long>(para_SpeedBias[i])] = para_SpeedBias[i - 1];
@@ -1338,6 +1360,9 @@ void Estimator::optimization()
             last_marginalization_info = nullptr;
         }
         last_marginalization_info = marginalization_info;
+        // 告诉因子，边缘化最老帧=上一轮占 pose[1..10] 的那些帧，到下一轮通过 pose[0..9] 被访问
+        // last_marginalization_parameter_blocks是地址映射
+        // 后续搭配slideWindow()完成内容搬运，完成真正的滑动
         last_marginalization_parameter_blocks = parameter_blocks;
         
     }

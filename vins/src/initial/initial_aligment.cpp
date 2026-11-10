@@ -34,7 +34,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         // 公式③  Log(q) = θ·n̂ = 2 · sin(θ/2)·n̂ = 2·vec(q)   （小角度下，2 为近似系数）
         // 即 2·vec() 代替 Log，因为 Eigen 没有四元数的 log()
         tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();
-        // 累加为正规方程 (ΣJᵀJ)·δbg = ΣJᵀr
+        // 最小二乘求解 Ax=b
         A += tmp_A.transpose() * tmp_A;
         b += tmp_A.transpose() * tmp_b;
     }

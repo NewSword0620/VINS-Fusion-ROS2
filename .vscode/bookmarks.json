@@ -4,90 +4,155 @@
 			"path": "vins/src/estimator/estimator.cpp",
 			"bookmarks": [
 				{
-					"line": 336,
+					"line": 174,
+					"column": 28,
+					"label": "图像特征提取"
+				},
+				{
+					"line": 200,
+					"column": 18,
+					"label": "处理IMU和视觉约束"
+				},
+				{
+					"line": 337,
 					"column": 20,
 					"label": "IMU的预积分和正常积分"
 				},
 				{
-					"line": 475,
-					"column": 37,
-					"label": "判断平均视差"
+					"line": 343,
+					"column": 21,
+					"label": "图像处理主要内容"
 				},
 				{
-					"line": 496,
+					"line": 477,
+					"column": 37,
+					"label": "判断边缘化谁"
+				},
+				{
+					"line": 499,
 					"column": 31,
 					"label": "（未看）IMU和相机外参初始标定"
 				},
 				{
-					"line": 515,
+					"line": 518,
 					"column": 9,
 					"label": "完成包括零偏的初始化"
 				},
 				{
-					"line": 518,
+					"line": 521,
 					"column": 16,
 					"label": "（未看）单目+imu优化"
 				},
 				{
-					"line": 556,
+					"line": 545,
+					"column": 29,
+					"label": "双目+IMU初始化"
+				},
+				{
+					"line": 547,
+					"column": 15,
+					"label": "PnP计算位姿变化"
+				},
+				{
+					"line": 559,
 					"column": 26,
 					"label": "利用PnP结果重新计算零偏"
 				},
 				{
-					"line": 563,
+					"line": 566,
 					"column": 31,
 					"label": "Ceres优化"
 				},
 				{
-					"line": 572,
+					"line": 575,
 					"column": 13,
 					"label": "（未看）双目无imu优化"
 				},
 				{
-					"line": 1089,
+					"line": 1096,
 					"column": 48,
 					"label": "添加位姿待估计变量"
 				},
 				{
-					"line": 1098,
+					"line": 1105,
 					"column": 11,
 					"label": "添加相机外参待估计变量"
 				},
 				{
-					"line": 1114,
+					"line": 1121,
 					"column": 21,
 					"label": "添加延时待估计变量"
 				},
 				{
-					"line": 1119,
+					"line": 1126,
 					"column": 13,
-					"label": "（未看）边缘化因子"
+					"label": "边缘化因子"
 				},
 				{
-					"line": 1133,
+					"line": 1140,
 					"column": 14,
 					"label": "IMU因子"
 				},
 				{
-					"line": 1159,
+					"line": 1166,
 					"column": 24,
-					"label": "2帧图1相机约束"
+					"label": "2帧图1相机因子"
 				},
 				{
-					"line": 1169,
+					"line": 1176,
 					"column": 31,
-					"label": "2帧图2相机约束"
+					"label": "2帧图2相机因子"
 				},
 				{
-					"line": 1175,
+					"line": 1182,
 					"column": 28,
-					"label": "1帧图2相机约束"
+					"label": "1帧图2相机因子"
+				},
+				{
+					"line": 1224,
+					"column": 20,
+					"label": "优化后的位姿修正"
+				},
+				{
+					"line": 1264,
+					"column": 36,
+					"label": "边缘化IMU因子"
+				},
+				{
+					"line": 1293,
+					"column": 34,
+					"label": "边缘化2帧图1相机因子"
+				},
+				{
+					"line": 1305,
+					"column": 38,
+					"label": "边缘化2帧图2相机因子"
+				},
+				{
+					"line": 1314,
+					"column": 35,
+					"label": "边缘化1帧图2相机因子"
+				},
+				{
+					"line": 1330,
+					"column": 47,
+					"label": "边缘化准备"
+				},
+				{
+					"line": 1336,
+					"column": 44,
+					"label": "边缘化计算"
 				}
 			]
 		},
 		{
 			"path": "vins/src/estimator/feature_manager.cpp",
 			"bookmarks": [
+				{
+					"line": 357,
+					"column": 19,
+					"label": "标准双目三角化"
+				},
 				{
 					"line": 372,
 					"column": 13,
@@ -121,10 +186,40 @@
 			]
 		},
 		{
+			"path": "vins/src/rosNodeTest.cpp",
+			"bookmarks": [
+				{
+					"line": 117,
+					"column": 30,
+					"label": "双目图像处理入口"
+				},
+				{
+					"line": 278,
+					"column": 12,
+					"label": "IMU回调"
+				},
+				{
+					"line": 281,
+					"column": 50,
+					"label": "左目图像回调"
+				},
+				{
+					"line": 286,
+					"column": 64,
+					"label": "右目图像回调"
+				},
+				{
+					"line": 293,
+					"column": 35,
+					"label": "主线程"
+				}
+			]
+		},
+		{
 			"path": "vins/src/factor/projectionTwoFrameOneCamFactor.cpp",
 			"bookmarks": [
 				{
-					"line": 29,
+					"line": 30,
 					"column": 24,
 					"label": "（未看）UNIT_SPHERE_ERROR"
 				}
